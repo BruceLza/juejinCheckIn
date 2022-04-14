@@ -1,14 +1,12 @@
 const axios = require('axios')
 const config = require('./config')
-const nodemailer = require('nodemailer')
-const ejs = require('ejs')
-const fs = require('fs')
-const path = require('path')
 const logs = []
+let tip = ''
 
 // 请求配置
 axios.defaults.baseURL = config.baseUrl
 axios.defaults.headers['cookie'] = process.env.COOKIE
+// axios.defaults.headers['cookie'] = '_ga=GA1.2.917980235.1615951058; MONITOR_WEB_ID=62687fc9-433a-41d2-a58e-849b2f99cae6; __tea_cookie_tokens_2608=%7B%22web_id%22%3A%226940456934350210593%22%2C%22ssid%22%3A%224906603b-09ea-4598-a586-8676adbdd023%22%2C%22user_unique_id%22%3A%226940456934350210593%22%2C%22timestamp%22%3A1626075934848%7D; _tea_utm_cache_2608={"utm_source":"feed_5","utm_medium":"feed","utm_campaign":"juejin1week_0216"}; passport_csrf_token=a54052670b7ab4e8f885d39d5fecb0b8; passport_csrf_token_default=a54052670b7ab4e8f885d39d5fecb0b8; n_mh=gsxc4bW8jRluV_mEWU1obfgEOJ4ySQSkumyEAXqk-uw; passport_auth_status=a92e8e99d14c3eaa16b239cf963b43cd,; passport_auth_status_ss=a92e8e99d14c3eaa16b239cf963b43cd,; sid_guard=217bb95f96608f096f3e31ede5834acb|1648177724|5184000|Tue,+24-May-2022+03:08:44+GMT; uid_tt=ef40854b777462c96a40c205103f8b96; uid_tt_ss=ef40854b777462c96a40c205103f8b96; sid_tt=217bb95f96608f096f3e31ede5834acb; sessionid=217bb95f96608f096f3e31ede5834acb; sessionid_ss=217bb95f96608f096f3e31ede5834acb; sid_ucp_v1=1.0.0-KGRhODk4MWMwOGRlYTNhNDUzZWI2MmEzMTNkNzUxNGYxYzJiZjU5MTQKFwi4mZDA_fWxBxC85PSRBhiwFDgCQPEHGgJsZiIgMjE3YmI5NWY5NjYwOGYwOTZmM2UzMWVkZTU4MzRhY2I; ssid_ucp_v1=1.0.0-KGRhODk4MWMwOGRlYTNhNDUzZWI2MmEzMTNkNzUxNGYxYzJiZjU5MTQKFwi4mZDA_fWxBxC85PSRBhiwFDgCQPEHGgJsZiIgMjE3YmI5NWY5NjYwOGYwOTZmM2UzMWVkZTU4MzRhY2I; _gid=GA1.2.270058361.1649645724'
 
 // 相应拦截处理
 axios.interceptors.response.use((response) => {
@@ -92,6 +90,7 @@ const dipLucky = async () => {
     const historyId = await getLuckyUserHistoryId()
     // 沾喜气接口   传递lottery_history_id
     const dipLuckyRes = await axios({ url: config.api.dipLucky, method: 'post', data: { lottery_history_id: historyId } })
+    tip += `占喜气成功! 🎉 【当前幸运值：${dipLuckyRes.data.total_value}/6000】`
     console.log(`占喜气成功! 🎉 【当前幸运值：${dipLuckyRes.data.total_value}/6000】`)
   } catch (error) {
     throw `占喜气失败！ ${error}`
@@ -112,6 +111,7 @@ const draw = async () => {
 
     // 开始抽奖
     const drawRes = await axios({ url: config.api.draw, method: 'post' })
+    tip += `恭喜你抽到【${drawRes.data.lottery_name}】🎉`
     console.log(`恭喜你抽到【${drawRes.data.lottery_name}】🎉`)
 
     // 沾喜气
@@ -139,6 +139,17 @@ const getCheckInDays = async () => {
   }
 }
 
+/* 
+  推送消息
+*/
+const pushMsg = async (params = { text: '', desp: '' }) => {
+  // ?text=${text}&desp=${desp}
+  try {
+    await axios({ url: `${config.api.sendKey}.send`, params, method: 'get', baseURL: 'https://sc.ftqq.com/' })
+  } catch (error) {
+    console.log('推送')
+  }
+}
 
 /**
  * 签到
@@ -152,58 +163,24 @@ const checkIn = async () => {
     if (!checkStatusRes) {
       // 签到
       const checkInRes = await axios({ url: config.api.checkIn, method: 'post' })
+      tip += `签到成功+${checkInRes.data.incr_point}矿石，总矿石${checkInRes.data.sum_point}`
       console.log(`签到成功+${checkInRes.data.incr_point}矿石，总矿石${checkInRes.data.sum_point}`)
 
       // 查询签到天数
       const getCheckInDaysRes = await getCheckInDays()
+      tip += `连续签到【${getCheckInDaysRes.continuousDay}】天  总签到天数【${getCheckInDaysRes.sumCount}】  掘金不停 签到不断💪`
       console.log(`连续签到【${getCheckInDaysRes.continuousDay}】天  总签到天数【${getCheckInDaysRes.sumCount}】  掘金不停 签到不断💪`)
 
       // 签到成功 去抽奖
       await draw()
+      await pushMsg({ text: '签到成功', desc: tip })
     } else {
-      console.log('今日已经签到 ✅')
+      pushMsg({ text: '今日已经签到', desc: '今日已经签到' })
     }
-
   } catch (error) {
-    console.error(`签到失败!=======> ${error}`)
+    await pushMsg({ text: `签到失败!=======> ${error}`, desc: '签到失败!=======> ${error}' })
   }
 }
-
-/**
- * 发送邮件
- *
- */
-const sendEmail = async () => {
-  try {
-    const template = ejs.compile(fs.readFileSync(path.resolve(__dirname, 'email.ejs'), 'utf8'));
-    const transporter = nodemailer.createTransport({
-      service: process.env.SERVICE, // 邮箱服务
-      port: 465,
-      secure: true,
-      secureConnection: true,
-      auth: {
-        user: process.env.EMAIL, // 发送者邮箱
-        pass: process.env.PASS, // 邮箱授权码
-      }
-    })
-
-    // 发送邮件
-    await transporter.sendMail({
-      from: process.env.EMAIL,
-      to: process.env.EMAIL,
-      subject: '掘金签到通知🔔',
-      html: template({
-        logs: logs
-      })
-    })
-
-  } catch (error) {
-    console.error(`邮件发送失败！${error}`)
-  }
-
-
-}
-
 
 /**
  * 启动程序  处理日志输出 开始签到流程 将结果通过邮件形式发送
@@ -231,8 +208,6 @@ const start = async () => {
   }
 
   await checkIn()
-
-  await sendEmail()
 }
 
 start()
